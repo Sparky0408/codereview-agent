@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+dist/
+build/
+
+# Environment
+.env
+
+# Secrets
+secrets/*.pem
+
+# ChromaDB
+chroma_data/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+.env
+secrets/
+__pycache__/
+.venv/
+.pytest_cache/
+chroma_data/
+*.pem
