@@ -1,0 +1,2 @@
+review_rules:
+  max_function_lines: 10

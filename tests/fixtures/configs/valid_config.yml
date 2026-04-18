@@ -1,0 +1,11 @@
+enabled: true
+ignore_paths:
+  - "*.md"
+  - "tests/**"
+languages:
+  - "python"
+review_rules:
+  max_function_lines: 30
+  max_cyclomatic_complexity: 5
+  banned_patterns: ["print\\("]
+  severity_threshold: SUGGESTION

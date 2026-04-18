@@ -1,6 +1,6 @@
 """Tests for the ReviewPipeline orchestrator."""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 import pytest
 from github.GithubException import UnknownObjectException
@@ -121,8 +121,8 @@ async def test_pipeline_skips_unsupported_file(
 
     await pipeline.run("owner/repo", 1, "token", [("unknown.txt", "patch")], "sha")
 
-    # Reviewer still called, but with empty AST summaries
-    mock_reviewer.review.assert_called_once_with([("unknown.txt", "patch")], [])
+    # Reviewer shouldn't be called because the file filtered out
+    mock_reviewer.review.assert_not_called()
 
 
 @pytest.mark.asyncio
@@ -143,4 +143,4 @@ async def test_pipeline_handles_github_fetch_error(
     await pipeline.run("owner/repo", 1, "token", [("deleted.py", "patch")], "sha")
 
     mock_analyzer.analyze.assert_not_called()
-    mock_reviewer.review.assert_called_once_with([("deleted.py", "patch")], [])
+    mock_reviewer.review.assert_called_once_with([("deleted.py", "patch")], [], review_rules=ANY)

@@ -1,6 +1,7 @@
 """Orchestrates the entire code review pipeline."""
 
 import asyncio
+import fnmatch
 import logging
 
 from github import Auth, Github
@@ -8,6 +9,7 @@ from github.GithubException import UnknownObjectException
 
 from app.models.ast_summary import ASTSummary
 from app.services.ast_analyzer import ASTAnalyzer
+from app.services.config_loader import ConfigLoader
 from app.services.github_poster import GitHubPoster
 from app.services.reviewer import Reviewer
 
@@ -22,6 +24,7 @@ class ReviewPipeline:
         ast_analyzer: ASTAnalyzer,
         reviewer: Reviewer,
         poster: GitHubPoster,
+        config_loader: ConfigLoader | None = None,
     ) -> None:
         """Initialise the pipeline with its required services.
 
@@ -29,10 +32,12 @@ class ReviewPipeline:
             ast_analyzer: Service to extract AST metrics.
             reviewer: Service to generate LLM reviews.
             poster: Service to post comments to GitHub.
+            config_loader: Service to load repository configurations.
         """
         self.ast_analyzer = ast_analyzer
         self.reviewer = reviewer
         self.poster = poster
+        self.config_loader = config_loader or ConfigLoader()
 
     async def run(
         self,
@@ -56,6 +61,37 @@ class ReviewPipeline:
         try:
             logger.info("Starting pipeline for PR #%d in %s", pr_number, repo_full_name)
 
+            # Stage 0: Configuration Check
+            logger.info("Stage: Configuration Check started")
+            config = await self.config_loader.load_config(
+                repo_full_name, installation_token, head_sha
+            )
+            if not config.enabled:
+                logger.info("Reviews disabled for %s. Skipping pipeline.", repo_full_name)
+                return
+
+            def _is_enabled_file(filename: str) -> bool:
+                for pattern in config.ignore_paths:
+                    if fnmatch.fnmatch(filename, pattern):
+                        return False
+                ext = filename.split(".")[-1].lower() if "." in filename else ""
+                ext_map = {
+                    "py": "python",
+                    "js": "javascript",
+                    "ts": "typescript",
+                    "tsx": "typescript",
+                    "jsx": "javascript",
+                }
+                lang = ext_map.get(ext)
+                return bool(lang and lang in config.languages)
+
+            filtered_pr_files = [
+                (name, patch) for name, patch in pr_files if _is_enabled_file(name)
+            ]
+            if not filtered_pr_files:
+                logger.info("No supported files remaining after applying config filters.")
+                return
+
             # Stage 1: AST Analysis
             logger.info("Stage: AST Analysis started")
             ast_summaries: list[ASTSummary] = []
@@ -75,7 +111,7 @@ class ReviewPipeline:
                     logger.warning("Failed to fetch %s: %s", filename, e)
                     return None
 
-            for filename, _ in pr_files:
+            for filename, _ in filtered_pr_files:
                 content = await asyncio.to_thread(_fetch_content, filename)
                 if content is not None:
                     summary = await self.ast_analyzer.analyze(filename, content)
@@ -89,7 +125,9 @@ class ReviewPipeline:
 
             # Stage 2: Review Generation
             logger.info("Stage: Review Generation started")
-            review = await self.reviewer.review(pr_files, ast_summaries)
+            review = await self.reviewer.review(
+                filtered_pr_files, ast_summaries, review_rules=config.review_rules
+            )
             logger.info(
                 "Stage: Review Generation completed. Generated %d comments.",
                 len(review.comments),

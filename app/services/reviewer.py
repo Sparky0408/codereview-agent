@@ -11,7 +11,8 @@ from pydantic import ValidationError
 
 from app.config import get_settings
 from app.models.ast_summary import ASTSummary
-from app.models.review import ReviewOutput
+from app.models.repo_config import ReviewRules
+from app.models.review import ReviewComment, ReviewOutput
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +33,10 @@ class Reviewer:
         self._user_template = user_file.read_text("utf-8") if user_file.exists() else ""
 
     async def review(
-        self, pr_files: list[tuple[str, str]], ast_summaries: list[ASTSummary]
+        self,
+        pr_files: list[tuple[str, str]],
+        ast_summaries: list[ASTSummary],
+        review_rules: ReviewRules | None = None,
     ) -> ReviewOutput:
         """Analyze PR diffs and AST context to generate review comments.
 
@@ -43,6 +47,16 @@ class Reviewer:
         ast_text = "\n\n".join(s.model_dump_json(indent=2) for s in ast_summaries)
 
         user_prompt = self._user_template.format(ast_summaries=ast_text, diffs=diffs_text)
+
+        if review_rules:
+            user_prompt += (
+                f"\n\nThe team has configured these rules: "
+                f"max function lines = {review_rules.max_function_lines}, "
+                f"max complexity = {review_rules.max_cyclomatic_complexity}, "
+                f"max function args = {review_rules.max_function_args}, "
+                f"banned patterns = {review_rules.banned_patterns}. "
+                f"Flag violations of these rules as CRITICAL."
+            )
 
         config = types.GenerateContentConfig(
             system_instruction=self._system_prompt,
@@ -72,7 +86,34 @@ class Reviewer:
                 return None
 
             try:
-                return ReviewOutput.model_validate_json(text)
+                output = ReviewOutput.model_validate_json(text)
+
+                if review_rules:
+                    severity_levels = {"NITPICK": 1, "SUGGESTION": 2, "CRITICAL": 3}
+                    min_level = severity_levels.get(review_rules.severity_threshold, 1)
+
+                    filtered_comments: list[ReviewComment] = []
+                    file_counts: dict[str, int] = {}
+
+                    for comment in output.comments:
+                        level = severity_levels.get(comment.severity, 1)
+                        if level < min_level:
+                            continue
+
+                        file_count = file_counts.get(comment.file_path, 0)
+                        if file_count >= review_rules.max_comments_per_file:
+                            continue
+
+                        if len(filtered_comments) >= review_rules.max_total_comments:
+                            break
+
+                        filtered_comments.append(comment)
+                        file_counts[comment.file_path] = file_count + 1
+
+                    output.comments = filtered_comments
+
+                return output
+
             except ValidationError as e:
                 logger.error("Failed to parse Gemini output: %s", e)
                 return None
