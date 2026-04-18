@@ -15,6 +15,7 @@ class HeadRepo(BaseModel):
 class Head(BaseModel):
     """Head ref of a pull request."""
 
+    sha: str
     repo: HeadRepo
 
 

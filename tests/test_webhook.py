@@ -15,6 +15,7 @@ VALID_PR_PAYLOAD = {
     "pull_request": {
         "number": 1,
         "head": {
+            "sha": "fake-sha",
             "repo": {
                 "full_name": "testuser/testrepo",
             },
