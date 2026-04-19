@@ -28,6 +28,8 @@ dependencies = [
     "tree-sitter-typescript>=0.22.0",
     "google-genai>=0.3.0",
     "PyYAML>=6.0.1",
+    "chromadb>=0.4.0",
+    "sentence-transformers>=2.0.0",
 ]
 
 [dependency-groups]
@@ -38,6 +40,7 @@ dev = [
     "ruff>=0.11.0",
     "mypy>=1.15.0",
     "respx>=0.22.0",
+    "types-pyyaml>=6.0.12.20260408",
 ]
 
 [tool.pytest.ini_options]
