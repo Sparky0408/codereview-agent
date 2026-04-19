@@ -13,6 +13,7 @@ from app.config import get_settings
 from app.models.ast_summary import ASTSummary
 from app.models.repo_config import ReviewRules
 from app.models.review import ReviewComment, ReviewOutput
+from app.models.review_context import PRContext
 
 logger = logging.getLogger(__name__)
 
@@ -37,6 +38,7 @@ class Reviewer:
         pr_files: list[tuple[str, str]],
         ast_summaries: list[ASTSummary],
         review_rules: ReviewRules | None = None,
+        pr_context: PRContext | None = None,
     ) -> ReviewOutput:
         """Analyze PR diffs and AST context to generate review comments.
 
@@ -46,7 +48,22 @@ class Reviewer:
         diffs_text = "\n\n".join(f"File: {name}\nPatch:\n{patch}" for name, patch in pr_files)
         ast_text = "\n\n".join(s.model_dump_json(indent=2) for s in ast_summaries)
 
-        user_prompt = self._user_template.format(ast_summaries=ast_text, diffs=diffs_text)
+        rag_text = ""
+        if pr_context and pr_context.contexts_by_file:
+            rag_text += "## Related Code Chunks (RAG Context)\n\n"
+            for f, chunks in pr_context.contexts_by_file.items():
+                if chunks:
+                    rag_text += f"For file: {f}\n"
+                    for chunk in chunks:
+                        rag_text += (
+                            f"---\nFrom {chunk.file_path} "
+                            f"(similarity: {chunk.similarity_score:.2f}):\n{chunk.content}\n"
+                        )
+                    rag_text += "\n"
+
+        user_prompt = self._user_template.format(
+            ast_summaries=ast_text, rag_context=rag_text, diffs=diffs_text
+        )
 
         if review_rules:
             user_prompt += (
