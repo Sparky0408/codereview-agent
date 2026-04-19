@@ -1,0 +1,45 @@
+{
+  "pr": {
+    "number": 1234,
+    "title": "Fix request validation in middleware",
+    "merge_commit_sha": "abc123def456",
+    "pre_merge_sha": "parent789abc"
+  },
+  "human_comments": [
+    {
+      "body": "This variable should be validated before use to prevent potential null reference errors",
+      "file_path": "src/middleware.py",
+      "line": 42
+    },
+    {
+      "body": "Consider using a constant for this timeout value instead of a magic number",
+      "file_path": "src/middleware.py",
+      "line": 78
+    },
+    {
+      "body": "The error handling here should log the exception details for debugging",
+      "file_path": "src/handlers/auth.py",
+      "line": 15
+    }
+  ],
+  "bot_comments": [
+    {
+      "file_path": "src/middleware.py",
+      "line": 42,
+      "severity": "CRITICAL",
+      "comment": "Variable used without validated null check — this could cause reference errors at runtime"
+    },
+    {
+      "file_path": "src/middleware.py",
+      "line": 80,
+      "severity": "SUGGESTION",
+      "comment": "This magic number timeout value should be extracted to a named constant for clarity"
+    },
+    {
+      "file_path": "src/middleware.py",
+      "line": 95,
+      "severity": "NITPICK",
+      "comment": "Consider adding a docstring to this helper function for better documentation"
+    }
+  ]
+}

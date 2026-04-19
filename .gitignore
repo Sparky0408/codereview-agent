@@ -27,3 +27,7 @@ __pycache__/
 .pytest_cache/
 chroma_data/
 *.pem
+
+# Eval
+eval_report.md
+eval_reports/
