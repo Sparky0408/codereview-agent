@@ -8,9 +8,12 @@ from github import Auth, Github
 from github.GithubException import UnknownObjectException
 
 from app.models.ast_summary import ASTSummary
+from app.models.review_context import PRContext
 from app.services.ast_analyzer import ASTAnalyzer
 from app.services.config_loader import ConfigLoader
+from app.services.context_retriever import ContextRetriever
 from app.services.github_poster import GitHubPoster
+from app.services.repo_indexer import RepoIndexer
 from app.services.reviewer import Reviewer
 
 logger = logging.getLogger(__name__)
@@ -25,6 +28,8 @@ class ReviewPipeline:
         reviewer: Reviewer,
         poster: GitHubPoster,
         config_loader: ConfigLoader | None = None,
+        indexer: RepoIndexer | None = None,
+        retriever: ContextRetriever | None = None,
     ) -> None:
         """Initialise the pipeline with its required services.
 
@@ -33,11 +38,15 @@ class ReviewPipeline:
             reviewer: Service to generate LLM reviews.
             poster: Service to post comments to GitHub.
             config_loader: Service to load repository configurations.
+            indexer: Optional service to index the repository.
+            retriever: Optional service to retrieve code context.
         """
         self.ast_analyzer = ast_analyzer
         self.reviewer = reviewer
         self.poster = poster
         self.config_loader = config_loader or ConfigLoader()
+        self.indexer = indexer
+        self.retriever = retriever
 
     async def run(
         self,
@@ -123,10 +132,45 @@ class ReviewPipeline:
                 len(ast_summaries),
             )
 
+            # Stage: RAG / Indexing
+            if self.indexer:
+                try:
+                    logger.info("Stage: RAG Indexing started for %s", repo_full_name)
+                    is_indexed = await self.indexer.is_indexed(repo_full_name)
+                    if not is_indexed:
+                        await self.indexer.index_repo(repo_full_name, installation_token, head_sha)
+                    else:
+                        changed_files = [f for f, _ in pr_files]
+                        await self.indexer.incremental_update(
+                            repo_full_name, changed_files, installation_token, head_sha
+                        )
+                    logger.info("Stage: RAG Indexing completed")
+                except Exception as e:
+                    logger.warning("RAG Indexing failed, skipping: %s", e)
+            else:
+                logger.info("No indexer provided, skipping indexing")
+
+            pr_context: PRContext | None = None
+            if self.retriever:
+                try:
+                    logger.info("Stage: RAG Retrieval started for %s", repo_full_name)
+                    patch_by_file = {f: patch for f, patch in filtered_pr_files}
+                    pr_context = await self.retriever.retrieve_context(
+                        repo_full_name, patch_by_file
+                    )
+                    logger.info("Stage: RAG Retrieval completed")
+                except Exception as e:
+                    logger.warning("RAG Retrieval failed, skipping: %s", e)
+            else:
+                logger.info("No retriever provided, skipping retrieval")
+
             # Stage 2: Review Generation
             logger.info("Stage: Review Generation started")
             review = await self.reviewer.review(
-                filtered_pr_files, ast_summaries, review_rules=config.review_rules
+                filtered_pr_files,
+                ast_summaries,
+                review_rules=config.review_rules,
+                pr_context=pr_context,
             )
             logger.info(
                 "Stage: Review Generation completed. Generated %d comments.",
