@@ -32,7 +32,8 @@ class GitHubPoster:
             review: Structured review output to post.
         """
 
-        def _post_sync() -> None:
+        from typing import Any
+        def _post_sync() -> list[dict[str, Any]]:
             g = Github(auth=Auth.Token(installation_token))
             repo = g.get_repo(repo_full_name)
             pr = repo.get_pull(pr_number)
@@ -40,7 +41,7 @@ class GitHubPoster:
             if not review.comments:
                 # Post simple PR-level comment
                 pr.create_issue_comment("No issues found by CodeReview Agent.")
-                return
+                return []
 
             comments_list = []
             for c in review.comments:
@@ -57,10 +58,57 @@ class GitHubPoster:
                     }
                 )
 
-            pr.create_review(
+            created_review = pr.create_review(
                 body=review.summary,
                 event="COMMENT",
                 comments=comments_list,  # type: ignore[arg-type]  # PyGitHub typings expect internal class, but API takes dict
             )
 
-        await asyncio.to_thread(_post_sync)
+            review_comments = [
+                c for c in pr.get_review_comments()
+                if c.pull_request_review_id == created_review.id
+            ]
+
+            # Extract created comments to record their IDs for reactions
+            return [
+                {
+                    "id": c.id,
+                    "path": c.path,
+                    "line": c.original_line or c.line,
+                    "body": c.body,
+                }
+                for c in review_comments
+            ]
+
+        posted_comments_data = await asyncio.to_thread(_post_sync)
+
+        if not posted_comments_data:
+            return
+
+        from app.db.session import async_session
+        from app.services.feedback_tracker import FeedbackTracker
+
+        tracker = FeedbackTracker()
+        async with async_session() as session:
+            for rc in review.comments:
+                expected_prefix = f"**[{rc.severity.value}]**"
+
+                matched_id = None
+                for pcd in posted_comments_data:
+                    # Match by path, line, and prefix
+                    if (
+                        pcd["path"] == rc.file_path
+                        and pcd["line"] == rc.line
+                        and pcd["body"].startswith(expected_prefix)
+                    ):
+                        matched_id = pcd["id"]
+                        break
+
+                if matched_id:
+                    await tracker.record_bot_comment(
+                        session=session,
+                        comment=rc,
+                        github_comment_id=matched_id,
+                        repo=repo_full_name,
+                        pr_number=pr_number,
+                    )

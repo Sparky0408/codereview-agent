@@ -66,6 +66,50 @@ async def webhook(request: Request) -> dict[str, str | int]:
 
     # Check event type
     event = request.headers.get("X-GitHub-Event", "")
+
+    if event == "pull_request_review_comment":
+        import json
+
+        from app.db.session import async_session
+        from app.services.feedback_tracker import FeedbackTracker
+        payload_data = json.loads(body)
+
+        action = payload_data.get("action")
+        reaction_type = None
+        target_id = None
+        user_login = "unknown"
+
+        comment_obj = payload_data.get("comment", {})
+        reaction_obj = payload_data.get("reaction")
+
+        # Scenario 1: New reactions API payload or similar
+        if reaction_obj and action == "created":
+            content = reaction_obj.get("content")
+            if content == "+1":
+                reaction_type = "thumbs_up"
+            elif content == "-1":
+                reaction_type = "thumbs_down"
+            target_id = comment_obj.get("id")
+            user_login = reaction_obj.get("user", {}).get("login", "unknown")
+
+        # Scenario 2: A comment replying to the bot comment
+        elif action == "created" and comment_obj.get("in_reply_to_id"):
+            body_text = comment_obj.get("body", "").strip()
+            if body_text in ("+1", "👍", "thumbsup"):
+                reaction_type = "thumbs_up"
+            elif body_text in ("-1", "👎", "thumbsdown"):
+                reaction_type = "thumbs_down"
+            target_id = comment_obj.get("in_reply_to_id")
+            user_login = comment_obj.get("user", {}).get("login", "unknown")
+
+        if reaction_type and target_id:
+            tracker = FeedbackTracker()
+            async with async_session() as session:
+                await tracker.record_feedback(session, target_id, reaction_type, user_login)
+            return {"status": "feedback_recorded"}
+
+        return {"skipped": "not a reaction"}
+
     if event != "pull_request":
         return {"skipped": "event"}
 
