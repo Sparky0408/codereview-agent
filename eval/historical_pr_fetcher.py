@@ -37,7 +37,6 @@ query($owner: String!, $name: String!, $cursor: String, $limit: Int!) {
         files(first: 100) {
           nodes {
             path
-            patch
           }
         }
         reviews(first: 50) {
@@ -56,6 +55,8 @@ query($owner: String!, $name: String!, $cursor: String, $limit: Int!) {
   }
 }
 """
+
+REST_API_BASE = "https://api.github.com"
 
 
 @dataclass(frozen=True)
@@ -83,6 +84,7 @@ def _parse_pr_node(node: dict) -> HistoricalPR | None:  # type: ignore[type-arg]
     """Parse a single PR node from the GraphQL response.
 
     Returns None if the PR has no usable line-level comments or missing data.
+    File patches are NOT available via GraphQL; they are hydrated later via REST.
     """
     merge_commit = node.get("mergeCommit")
     if not merge_commit:
@@ -94,14 +96,13 @@ def _parse_pr_node(node: dict) -> HistoricalPR | None:  # type: ignore[type-arg]
         return None
     pre_merge_sha: str = parents[0]["oid"]
 
-    # Parse changed files
+    # Parse changed file paths (patches come from REST later)
     files_nodes = node.get("files", {}).get("nodes", [])
     changed_files: list[tuple[str, str]] = []
     for f in files_nodes:
         path = f.get("path", "")
-        patch = f.get("patch") or ""
         if path:
-            changed_files.append((path, patch))
+            changed_files.append((path, ""))  # patch filled later
 
     if not changed_files:
         return None
@@ -132,6 +133,40 @@ def _parse_pr_node(node: dict) -> HistoricalPR | None:  # type: ignore[type-arg]
         changed_files=changed_files,
         human_comments=human_comments,
     )
+
+
+async def _fetch_pr_patches(
+    client: httpx.AsyncClient,
+    repo_full_name: str,
+    pr_number: int,
+    headers: dict[str, str],
+) -> dict[str, str]:
+    """Fetch file patches for a PR via the REST API.
+
+    Args:
+        client: Reusable httpx client.
+        repo_full_name: Owner/repo string.
+        pr_number: Pull request number.
+        headers: Auth headers.
+
+    Returns:
+        Dict mapping file path to patch string.
+    """
+    url = f"{REST_API_BASE}/repos/{repo_full_name}/pulls/{pr_number}/files"
+    try:
+        response = await client.get(url, headers=headers)
+        response.raise_for_status()
+        files_data: list[dict[str, str]] = response.json()  # type: ignore[assignment]
+        return {
+            f.get("filename", ""): f.get("patch", "")
+            for f in files_data
+            if f.get("filename")
+        }
+    except httpx.HTTPError as e:
+        logger.warning(
+            "Failed to fetch patches for PR #%d: %s", pr_number, e,
+        )
+        return {}
 
 
 async def fetch_merged_prs(
@@ -181,7 +216,9 @@ async def fetch_merged_prs(
             data = response.json()
 
             if "errors" in data:
-                error_msg = data["errors"][0].get("message", "Unknown GraphQL error")
+                error_msg = data["errors"][0].get(
+                    "message", "Unknown GraphQL error",
+                )
                 logger.error("GraphQL error: %s", error_msg)
                 raise RuntimeError(f"GraphQL query failed: {error_msg}")
 
@@ -205,6 +242,20 @@ async def fetch_merged_prs(
                 cursor = page_info.get("startCursor")
             else:
                 break
+
+        # Hydrate patches via REST (GraphQL doesn't expose them)
+        rest_headers = {
+            "Authorization": f"Bearer {pat_token}",
+            "Accept": "application/vnd.github.v3+json",
+        }
+        for pr in collected:
+            patches = await _fetch_pr_patches(
+                client, repo_full_name, pr.number, rest_headers,
+            )
+            pr.changed_files = [
+                (path, patches.get(path, ""))
+                for path, _ in pr.changed_files
+            ]
 
     logger.info(
         "Fetched %d usable merged PRs from %s (with review comments)",

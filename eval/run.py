@@ -50,6 +50,7 @@ class DryRunPoster:
 
 async def _run_eval_for_pr(
     pr: HistoricalPR,
+    repo_full_name: str,
     gemini_api_key: str,
     gemini_model: str,
     installation_token: str,
@@ -58,6 +59,7 @@ async def _run_eval_for_pr(
 
     Args:
         pr: Historical PR data including changed files and human comments.
+        repo_full_name: Real owner/repo for fetching file contents.
         gemini_api_key: API key for Gemini.
         gemini_model: Gemini model name to use.
         installation_token: GitHub token for file content fetching.
@@ -80,7 +82,7 @@ async def _run_eval_for_pr(
     start = time.perf_counter()
 
     await pipeline.run(
-        repo_full_name="eval/replay",  # Dummy repo name for pipeline
+        repo_full_name=repo_full_name,
         pr_number=pr.number,
         installation_token=installation_token,
         pr_files=pr.changed_files,
@@ -184,6 +186,7 @@ async def main(argv: list[str] | None = None) -> None:
         )
         result = await _run_eval_for_pr(
             pr=pr,
+            repo_full_name=args.repo,
             gemini_api_key=gemini_api_key,
             gemini_model=args.gemini_model,
             installation_token=pat_token,  # PAT works for public repo content
