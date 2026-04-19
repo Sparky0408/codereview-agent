@@ -15,6 +15,7 @@ from app.services.context_retriever import ContextRetriever
 from app.services.github_poster import GitHubPoster
 from app.services.repo_indexer import RepoIndexer
 from app.services.reviewer import Reviewer
+from app.services.static_analyzer import StaticAnalyzer
 
 logger = logging.getLogger(__name__)
 
@@ -30,6 +31,7 @@ class ReviewPipeline:
         config_loader: ConfigLoader | None = None,
         indexer: RepoIndexer | None = None,
         retriever: ContextRetriever | None = None,
+        static_analyzer: StaticAnalyzer | None = None,
     ) -> None:
         """Initialise the pipeline with its required services.
 
@@ -47,6 +49,7 @@ class ReviewPipeline:
         self.config_loader = config_loader or ConfigLoader()
         self.indexer = indexer
         self.retriever = retriever
+        self.static_analyzer = static_analyzer
 
     async def run(
         self,
@@ -132,6 +135,13 @@ class ReviewPipeline:
                 len(ast_summaries),
             )
 
+            # Collect contents for Static Analysis
+            files_with_content: list[tuple[str, str]] = []
+            for filename, _ in filtered_pr_files:
+                content = await asyncio.to_thread(_fetch_content, filename)
+                if content is not None:
+                    files_with_content.append((filename, content))
+
             # Stage: RAG / Indexing
             if self.indexer:
                 try:
@@ -164,6 +174,17 @@ class ReviewPipeline:
             else:
                 logger.info("No retriever provided, skipping retrieval")
 
+            # Stage: Static Analysis
+            static_findings = None
+            if self.static_analyzer:
+                logger.info("Stage: Static Analysis started")
+                static_findings = await self.static_analyzer.analyze_files(files_with_content)
+                logger.info(
+                    "Stage: Static Analysis completed. Found %d findings in %dms.",
+                    len(static_findings.findings),
+                    sum(static_findings.timing_ms.values()),
+                )
+
             # Stage 2: Review Generation
             logger.info("Stage: Review Generation started")
             review = await self.reviewer.review(
@@ -171,6 +192,7 @@ class ReviewPipeline:
                 ast_summaries,
                 review_rules=config.review_rules,
                 pr_context=pr_context,
+                static_findings=static_findings,
             )
             logger.info(
                 "Stage: Review Generation completed. Generated %d comments.",

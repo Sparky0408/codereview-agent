@@ -161,7 +161,7 @@ async def test_pipeline_handles_github_fetch_error(
 
     mock_analyzer.analyze.assert_not_called()
     mock_reviewer.review.assert_called_once_with(
-        [("deleted.py", "patch")], [], review_rules=ANY, pr_context=None
+        [("deleted.py", "patch")], [], review_rules=ANY, pr_context=None, static_findings=None
     )
 
 
@@ -197,7 +197,9 @@ async def test_pipeline_rag_happy_path_not_indexed(
     mock_retriever.retrieve_context.assert_called_once_with("owner/repo", {"main.py": "patch"})
 
     mock_reviewer.review.assert_called_once_with(
-        pr_files, [ANY], review_rules=ANY, pr_context=mock_retriever.retrieve_context.return_value
+        pr_files, [ANY], review_rules=ANY,
+        pr_context=mock_retriever.retrieve_context.return_value,
+        static_findings=None,
     )
 
 
@@ -284,6 +286,9 @@ async def test_pipeline_retrieval_failure_skips_rag_but_reviews(
     await pipeline.run("owner/repo", 1, "token", pr_files, "sha")
 
     # Should be called with pr_context=None due to failure
-    mock_reviewer.review.assert_called_once_with(pr_files, [ANY], review_rules=ANY, pr_context=None)
+    mock_reviewer.review.assert_called_once_with(
+        pr_files, [ANY], review_rules=ANY,
+        pr_context=None, static_findings=None,
+    )
     mock_poster.post_review.assert_called_once()
 

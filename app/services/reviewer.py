@@ -14,6 +14,7 @@ from app.models.ast_summary import ASTSummary
 from app.models.repo_config import ReviewRules
 from app.models.review import ReviewComment, ReviewOutput
 from app.models.review_context import PRContext
+from app.models.static_findings import StaticAnalysisResult
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +40,7 @@ class Reviewer:
         ast_summaries: list[ASTSummary],
         review_rules: ReviewRules | None = None,
         pr_context: PRContext | None = None,
+        static_findings: StaticAnalysisResult | None = None,
     ) -> ReviewOutput:
         """Analyze PR diffs and AST context to generate review comments.
 
@@ -61,8 +63,22 @@ class Reviewer:
                         )
                     rag_text += "\n"
 
+        static_text = "No tools run."
+        if static_findings:
+            if static_findings.findings:
+                static_text = "\n".join(
+                    f"- {f.file_path}:{f.line} [{f.tool}/{f.rule_id}] "
+                    f"({f.severity}): {f.message}"
+                    for f in static_findings.findings
+                )
+            else:
+                static_text = "No findings (all clear!)."
+
         user_prompt = self._user_template.format(
-            ast_summaries=ast_text, rag_context=rag_text, diffs=diffs_text
+            ast_summaries=ast_text,
+            rag_context=rag_text,
+            diffs=diffs_text,
+            static_findings_block=static_text,
         )
 
         if review_rules:
