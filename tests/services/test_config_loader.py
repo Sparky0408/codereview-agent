@@ -142,6 +142,7 @@ async def test_ignore_paths_filtering(
         [("app/main.py", "patch")],
         [mock_analyzer.analyze.return_value],
         review_rules=ANY,
+        pr_context=None,
     )
     filtered_pr_files = mock_reviewer.review.call_args[0][0]
     assert len(filtered_pr_files) == 1
