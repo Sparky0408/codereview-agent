@@ -76,14 +76,23 @@ def generate(
 
     # ── Summary ──
     lines.append("## Summary\n")
+
+    # Botability stats
+    total_human = sum(r.match_result.total_human_comments for r in pr_results)
+    total_botable = sum(r.match_result.botable_comments for r in pr_results)
+    total_non_botable = sum(r.match_result.non_botable_comments for r in pr_results)
+
     lines.append("| Metric | Value |")
     lines.append("|--------|-------|")
+    lines.append(f"| Total human comments | {total_human} |")
+    lines.append(f"| Botable (fair comparison) | {total_botable} |")
+    lines.append(f"| Non-botable (conversational/design) | {total_non_botable} |")
     lines.append(f"| True Positives | {total_tp} |")
     lines.append(f"| False Positives | {total_fp} |")
     lines.append(f"| False Negatives | {total_fn} |")
-    lines.append(f"| **Precision** | **{_format_pct(precision)}** |")
-    lines.append(f"| **Recall** | **{_format_pct(recall)}** |")
-    lines.append(f"| **F1 Score** | **{_format_pct(f1)}** |")
+    lines.append(f"| **Precision** (botable only) | **{_format_pct(precision)}** |")
+    lines.append(f"| **Recall** (botable only) | **{_format_pct(recall)}** |")
+    lines.append(f"| **F1 Score** (botable only) | **{_format_pct(f1)}** |")
     lines.append("")
 
     # ── Per-PR Breakdown ──
@@ -163,6 +172,20 @@ def generate(
             lines.append("")
     else:
         lines.append("_No false negatives._\n")
+
+    # Non-botable examples (show up to 5)
+    all_non_botable = [
+        ex
+        for r in pr_results
+        for ex in r.match_result.non_botable_examples
+    ]
+    lines.append("### Non-botable Comments (filtered from recall)\n")
+    if all_non_botable:
+        for reason, snippet in all_non_botable[:5]:
+            lines.append(f"- {reason} “{snippet}”")
+        lines.append("")
+    else:
+        lines.append("_No non-botable comments._\n")
 
     # ── Performance ──
     lines.append("## Performance\n")

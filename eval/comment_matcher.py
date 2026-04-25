@@ -4,9 +4,15 @@ Matching criteria:
 - Same file
 - Line numbers within ±3 of each other
 - ≥2 significant words in common (stop words excluded)
+
+Pre-filtering:
+- Human comments are classified as "botable" or "non-botable" before matching.
+- Only botable comments count toward the recall denominator.
 """
 
 import logging
+import re
+import unicodedata
 from collections import defaultdict
 from dataclasses import dataclass, field
 
@@ -43,6 +49,170 @@ def _extract_significant_words(text: str) -> set[str]:
     return words
 
 
+# ── Botability pre-filter ─────────────────────────────────────────────────
+
+_QUESTION_PREFIXES: tuple[str, ...] = (
+    "could ", "should ", "what about ", "why not ",
+    "can we ", "how about ", "would it ",
+)
+
+_SELF_REFERENCE_PATTERNS: tuple[str, ...] = (
+    "i'm going to disagree with my earlier self",
+    "change of heart",
+    "on reviewing",
+    "sorry",
+)
+
+_CONVERSATIONAL_MARKERS: tuple[str, ...] = (
+    "thoughts?",
+    "wdyt",
+    "up to you",
+    "let me know",
+)
+
+_PURE_APPROVAL_RE = re.compile(
+    r"^\s*"
+    r"(lgtm|nice|👍|✅|🎉|💯|\+1)"
+    r"[\s!.]*$",
+    re.IGNORECASE,
+)
+
+_ABSENT_CODE_RE = re.compile(
+    r"\bcould we add\b|\bshould we add\b|\bthis is missing\b"
+    r"|\bwe need to add\b|\bplease add\b|\bcan we add\b",
+    re.IGNORECASE,
+)
+
+# GitHub-style colon-emoji shortcodes (e.g. :bow:, :rocket:)
+_COLON_EMOJI_RE = re.compile(r":[a-z0-9_+-]+:")
+
+_CASUAL_REPLY_RE = re.compile(
+    r"\b(good point|great catch|nice one|thanks|hehe"
+    r"|oops|my bad|true|fair enough|agreed|yeah)\b",
+    re.IGNORECASE,
+)
+
+_MIN_STRIPPED_LENGTH = 20
+_MAX_EMOJI_PUNCT_RATIO = 0.30
+
+
+def _strip_emoji_and_shortcodes(text: str) -> str:
+    """Remove Unicode emoji characters and :shortcode: sequences."""
+    # Remove colon shortcodes first
+    text = _COLON_EMOJI_RE.sub("", text)
+    # Remove Unicode emoji / symbol characters
+    return "".join(
+        ch for ch in text
+        if unicodedata.category(ch) not in ("So", "Sk", "Sc")
+    )
+
+
+def _emoji_punct_ratio(text: str) -> float:
+    """Return fraction of characters that are emoji, shortcodes, or punctuation."""
+    if not text:
+        return 0.0
+    total = len(text)
+    noise = 0
+    # Count colon shortcodes as noise
+    for m in _COLON_EMOJI_RE.finditer(text):
+        noise += len(m.group())
+    # Count remaining emoji / symbol / punctuation chars
+    for ch in _COLON_EMOJI_RE.sub("", text):
+        cat = unicodedata.category(ch)
+        if cat.startswith("P") or cat in ("So", "Sk", "Sc"):
+            noise += 1
+    return noise / total
+
+
+def get_non_botable_reason(text: str) -> str | None:
+    """Return the filter tag if a comment is non-botable, else None.
+
+    Filter tags: ``[empty]``, ``[approval]``, ``[question]``, ``[self-ref]``,
+    ``[conversational]``, ``[absent-code]``, ``[length]``, ``[emoji]``,
+    ``[suggestion]``, ``[casual]``.
+
+    Args:
+        text: Raw body of the human review comment.
+
+    Returns:
+        A short tag string if non-botable, or None if the comment is botable.
+    """
+    if not text or not text.strip():
+        return "[empty]"
+
+    stripped = text.strip()
+    normalized = stripped.lower()
+
+    # Pure approval / emoji
+    if _PURE_APPROVAL_RE.match(stripped):
+        return "[approval]"
+
+    # Suggestion-block: starts with ```suggestion or is purely a code block
+    if normalized.startswith("```suggestion") or (
+        normalized.startswith("```") and normalized.rstrip("`").endswith("```")
+    ):
+        return "[suggestion]"
+
+    # Length after stripping whitespace and emoji/shortcodes
+    cleaned = _strip_emoji_and_shortcodes(stripped).strip()
+    if len(cleaned) < _MIN_STRIPPED_LENGTH:
+        return "[length]"
+
+    # Emoji-heavy
+    if _emoji_punct_ratio(stripped) > _MAX_EMOJI_PUNCT_RATIO:
+        return "[emoji]"
+
+    # Question prefixes
+    for prefix in _QUESTION_PREFIXES:
+        if normalized.startswith(prefix):
+            return "[question]"
+
+    # Self-reference patterns
+    for pattern in _SELF_REFERENCE_PATTERNS:
+        if pattern in normalized:
+            return "[self-ref]"
+
+    # Conversational markers
+    for marker in _CONVERSATIONAL_MARKERS:
+        if marker in normalized:
+            return "[conversational]"
+
+    # Casual reply
+    if _CASUAL_REPLY_RE.search(normalized):
+        return "[casual]"
+
+    # References to absent code
+    if _ABSENT_CODE_RE.search(text):
+        return "[absent-code]"
+
+    return None
+
+
+def is_botable_comment(text: str) -> bool:
+    """Classify whether a human review comment is 'botable'.
+
+    A comment is non-botable (returns False) if it falls into any of these
+    categories:
+    - Is empty or whitespace-only
+    - Is pure approval or emoji
+    - Starts with a GitHub ``suggestion`` code block
+    - Is too short after stripping emoji (<20 chars)
+    - Is emoji/punctuation heavy (>30%%)
+    - Starts with a question word/phrase
+    - Contains self-reference to reviewer's own previous comment
+    - Contains conversational markers
+    - Contains casual reply phrases ("thanks", "agreed", etc.)
+    - References only absent code (things to add, not things to fix)
+
+    Args:
+        text: Raw body of the human review comment.
+
+    Returns:
+        True if the comment is botable (should count toward recall).
+    """
+    return get_non_botable_reason(text) is None
+
+
 @dataclass(frozen=True)
 class MatchedPair:
     """A true-positive match between a bot comment and a human comment."""
@@ -60,6 +230,10 @@ class MatchResult:
     true_positives: list[MatchedPair] = field(default_factory=list)
     false_positives: list[ReviewComment] = field(default_factory=list)
     false_negatives: list[HumanComment] = field(default_factory=list)
+    total_human_comments: int = 0
+    botable_comments: int = 0
+    non_botable_comments: int = 0
+    non_botable_examples: list[tuple[str, str]] = field(default_factory=list)
 
     @property
     def tp(self) -> int:
@@ -104,23 +278,51 @@ def match(
     Uses greedy matching: for each file, pairs are ranked by
     (line_distance ASC, shared_word_count DESC) and assigned 1:1.
 
+    Human comments are pre-filtered through ``is_botable_comment``; only
+    botable comments participate in matching and count toward recall.
+
     Args:
         bot_comments: Comments generated by the bot in dry-run mode.
         human_comments: Comments left by human reviewers on the real PR.
 
     Returns:
-        MatchResult with TP, FP, FN breakdowns.
+        MatchResult with TP, FP, FN breakdowns and botability stats.
     """
+    total_human = len(human_comments)
+
+    # Pre-filter: only botable comments count toward recall
+    botable: list[HumanComment] = []
+    non_botable_examples: list[tuple[str, str]] = []
+    for hc in human_comments:
+        reason = get_non_botable_reason(hc.body)
+        if reason is None:
+            botable.append(hc)
+        else:
+            # Keep first 5 examples for the report (with reason tag)
+            if len(non_botable_examples) < 5:
+                non_botable_examples.append((reason, hc.body[:150]))
+
+    non_botable_count = total_human - len(botable)
+    logger.info(
+        "Botability filter: %d/%d human comments are botable (%d filtered)",
+        len(botable), total_human, non_botable_count,
+    )
+
     # Group by file path
     bot_by_file: dict[str, list[ReviewComment]] = defaultdict(list)
     human_by_file: dict[str, list[HumanComment]] = defaultdict(list)
 
     for bc in bot_comments:
         bot_by_file[bc.file_path].append(bc)
-    for hc in human_comments:
+    for hc in botable:
         human_by_file[hc.file_path].append(hc)
 
-    result = MatchResult()
+    result = MatchResult(
+        total_human_comments=total_human,
+        botable_comments=len(botable),
+        non_botable_comments=non_botable_count,
+        non_botable_examples=non_botable_examples,
+    )
 
     all_files = set(bot_by_file.keys()) | set(human_by_file.keys())
 

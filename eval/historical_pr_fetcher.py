@@ -156,7 +156,7 @@ async def _fetch_pr_patches(
     try:
         response = await client.get(url, headers=headers)
         response.raise_for_status()
-        files_data: list[dict[str, str]] = response.json()  # type: ignore[assignment]
+        files_data: list[dict[str, str]] = response.json()
         return {
             f.get("filename", ""): f.get("patch", "")
             for f in files_data

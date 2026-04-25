@@ -36,16 +36,33 @@ class DryRunPoster:
         pr_number: int,
         installation_token: str,
         review: ReviewOutput,
+        changed_lines_map: dict[str, set[int]] | None = None,
     ) -> None:
-        """Collect comments instead of posting them to GitHub.
+        """Collect comments after filtering them to changed lines (diff-aware).
 
         Args:
             repo_full_name: Repository owner/name (unused in dry run).
             pr_number: PR number (unused in dry run).
             installation_token: Token (unused in dry run).
             review: The review output to collect.
+            changed_lines_map: Optional mapping of filename to changed lines.
         """
-        self.collected_comments.extend(review.comments)
+        if changed_lines_map is not None:
+            original_count = len(review.comments)
+            filtered = [
+                c for c in review.comments
+                if c.line in changed_lines_map.get(c.file_path, set())
+            ]
+            dropped = original_count - len(filtered)
+            if dropped:
+                logger.info(
+                    "Filtered %d comments outside the diff, collecting %d comments",
+                    dropped,
+                    len(filtered),
+                )
+            self.collected_comments.extend(filtered)
+        else:
+            self.collected_comments.extend(review.comments)
 
 
 async def _run_eval_for_pr(
