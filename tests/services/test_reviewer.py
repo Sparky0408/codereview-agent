@@ -96,3 +96,52 @@ async def test_review_both_fail_returns_empty(mock_client_class: MagicMock) -> N
     assert output.summary == "Review failed"
     assert len(output.comments) == 0
     assert mock_instance.models.generate_content.call_count == 2
+
+
+@pytest.mark.asyncio
+@patch("app.services.reviewer.genai.Client")
+async def test_review_zero_comments_large_pr_logs_warning(
+    mock_client_class: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Verify a WARNING is logged when Gemini returns 0 comments on a large PR."""
+    mock_instance = MagicMock()
+    mock_client_class.return_value = mock_instance
+    mock_response = MagicMock(text='{"summary": "Looks good.", "comments": []}')
+    mock_response.usage_metadata = None
+    mock_instance.models.generate_content.return_value = mock_response
+
+    # Create a patch with >50 lines
+    large_patch = "\n".join(f"+line {i}" for i in range(60))
+
+    reviewer = Reviewer(api_key="fake")
+    with caplog.at_level("WARNING", logger="app.services.reviewer"):
+        output = await reviewer.review([("big_file.py", large_patch)], [])
+
+    assert output.summary == "Looks good."
+    assert len(output.comments) == 0
+    assert "Gemini returned 0 comments on a PR with" in caplog.text
+    assert "60 changed lines" in caplog.text
+
+
+@pytest.mark.asyncio
+@patch("app.services.reviewer.genai.Client")
+async def test_review_zero_comments_small_pr_no_warning(
+    mock_client_class: MagicMock, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Verify no WARNING is logged when Gemini returns 0 comments on a small PR."""
+    mock_instance = MagicMock()
+    mock_client_class.return_value = mock_instance
+    mock_response = MagicMock(text='{"summary": "LGTM", "comments": []}')
+    mock_response.usage_metadata = None
+    mock_instance.models.generate_content.return_value = mock_response
+
+    # Small patch: 5 lines
+    small_patch = "\n".join(f"+line {i}" for i in range(5))
+
+    reviewer = Reviewer(api_key="fake")
+    with caplog.at_level("WARNING", logger="app.services.reviewer"):
+        output = await reviewer.review([("tiny.py", small_patch)], [])
+
+    assert output.summary == "LGTM"
+    assert len(output.comments) == 0
+    assert "Gemini returned 0 comments" not in caplog.text

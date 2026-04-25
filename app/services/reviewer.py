@@ -151,9 +151,16 @@ class Reviewer:
                 logger.error("Failed to parse Gemini output: %s", e)
                 return None
 
+        total_changed_lines = sum(patch.count("\n") + 1 for _, patch in pr_files)
+
         # First attempt
         output = await asyncio.to_thread(_call_gemini, user_prompt)
         if output is not None:
+            if not output.comments and total_changed_lines > 50:
+                logger.warning(
+                    "Gemini returned 0 comments on a PR with %d changed lines",
+                    total_changed_lines,
+                )
             return output
 
         # Second attempt (fallback / retry once with strict reminder)
@@ -164,6 +171,11 @@ class Reviewer:
         )
         output_retry = await asyncio.to_thread(_call_gemini, retry_prompt)
         if output_retry is not None:
+            if not output_retry.comments and total_changed_lines > 50:
+                logger.warning(
+                    "Gemini returned 0 comments on a PR with %d changed lines",
+                    total_changed_lines,
+                )
             return output_retry
 
         logger.error("Review completely failed after retry.")
