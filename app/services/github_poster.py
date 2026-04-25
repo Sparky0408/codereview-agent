@@ -22,6 +22,7 @@ class GitHubPoster:
         pr_number: int,
         installation_token: str,
         review: ReviewOutput,
+        changed_lines_map: dict[str, set[int]] | None = None,
     ) -> None:
         """Post a structured review to a pull request.
 
@@ -30,7 +31,33 @@ class GitHubPoster:
             pr_number: Pull request number.
             installation_token: GitHub App installation access token.
             review: Structured review output to post.
+            changed_lines_map: Optional mapping of filename to set of changed
+                line numbers in the new file.  When provided, comments on
+                lines outside the diff are silently dropped.
         """
+
+        # --- Diff-line filtering ---
+        if changed_lines_map is not None:
+            original_count = len(review.comments)
+            filtered_comments = [
+                c for c in review.comments
+                if c.line in changed_lines_map.get(c.file_path, set())
+            ]
+            dropped = original_count - len(filtered_comments)
+            if dropped:
+                logger.info(
+                    "Filtered %d comments outside the diff, posting %d comments",
+                    dropped,
+                    len(filtered_comments),
+                )
+            comments_to_post = filtered_comments
+        else:
+            comments_to_post = list(review.comments)
+
+        # If all comments were filtered out, skip posting entirely
+        if not comments_to_post and changed_lines_map is not None and not review.summary:
+            logger.info("All comments filtered and no summary — skipping post")
+            return
 
         from typing import Any
         def _post_sync() -> list[dict[str, Any]]:
@@ -38,13 +65,13 @@ class GitHubPoster:
             repo = g.get_repo(repo_full_name)
             pr = repo.get_pull(pr_number)
 
-            if not review.comments:
+            if not comments_to_post:
                 # Post simple PR-level comment
                 pr.create_issue_comment("No issues found by CodeReview Agent.")
                 return []
 
             comments_list = []
-            for c in review.comments:
+            for c in comments_to_post:
                 formatted_body = f"**[{c.severity.value}]** {c.comment}"
                 if c.suggested_code:
                     formatted_body += f"\n\n```suggestion\n{c.suggested_code}\n```"
@@ -90,7 +117,7 @@ class GitHubPoster:
 
         tracker = FeedbackTracker()
         async with async_session() as session:
-            for rc in review.comments:
+            for rc in comments_to_post:
                 expected_prefix = f"**[{rc.severity.value}]**"
 
                 matched_id = None

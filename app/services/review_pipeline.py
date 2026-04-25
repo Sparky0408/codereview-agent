@@ -12,6 +12,7 @@ from app.models.review_context import PRContext
 from app.services.ast_analyzer import ASTAnalyzer
 from app.services.config_loader import ConfigLoader
 from app.services.context_retriever import ContextRetriever
+from app.services.diff_parser import parse_changed_lines
 from app.services.github_poster import GitHubPoster
 from app.services.repo_indexer import RepoIndexer
 from app.services.reviewer import Reviewer
@@ -199,6 +200,12 @@ class ReviewPipeline:
                 len(review.comments),
             )
 
+            # Build changed-lines map for diff-line filtering
+            changed_lines_map: dict[str, set[int]] = {
+                filename: parse_changed_lines(patch)
+                for filename, patch in filtered_pr_files
+            }
+
             # Stage 3: GitHub Posting
             logger.info("Stage: GitHub Posting started")
             await self.poster.post_review(
@@ -206,6 +213,7 @@ class ReviewPipeline:
                 pr_number=pr_number,
                 installation_token=installation_token,
                 review=review,
+                changed_lines_map=changed_lines_map,
             )
             logger.info("Stage: GitHub Posting completed")
 
