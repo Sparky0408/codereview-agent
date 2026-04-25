@@ -43,6 +43,22 @@ services:
       timeout: 3s
       retries: 5
 
+  dashboard:
+    build:
+      context: .
+      dockerfile: Dockerfile.dashboard
+    ports:
+      - "8501:8501"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: "postgresql+asyncpg://codereview:codereview@postgres:5432/codereview"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./eval_reports:/app/eval_reports
+
 volumes:
   pg_data:
   redis_data:

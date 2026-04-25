@@ -33,6 +33,9 @@ dependencies = [
     "ruff>=0.11.0",
     "bandit>=1.8.0",
     "semgrep>=1.60.0",
+    "streamlit>=1.37.0",
+    "pandas>=2.2.0",
+    "plotly>=5.22.0",
 ]
 
 [dependency-groups]
