@@ -21,8 +21,13 @@ from eval.historical_pr_fetcher import HumanComment
 
 logger = logging.getLogger(__name__)
 
-LINE_TOLERANCE = 3
+LINE_TOLERANCE = 5
 MIN_SHARED_WORDS = 2
+
+# Identifier-shaped tokens: at least one letter, optional digits/underscores.
+# Splits dotted attribute access ("typing.Any" → "typing", "any") and code
+# fences/backticks so `other:` becomes "other".
+_IDENT_RE = re.compile(r"[a-zA-Z][a-zA-Z0-9_]+")
 
 _STOP_WORDS: frozenset[str] = frozenset({
     "the", "a", "an", "is", "are", "was", "were", "be", "been", "being",
@@ -39,14 +44,17 @@ _STOP_WORDS: frozenset[str] = frozenset({
 
 
 def _extract_significant_words(text: str) -> set[str]:
-    """Extract significant words from text, excluding stop words and short tokens."""
-    words = set()
-    for token in text.lower().split():
-        # Strip common punctuation
-        cleaned = token.strip(".,;:!?\"'`()[]{}#*-_/\\@")
-        if len(cleaned) >= 3 and cleaned not in _STOP_WORDS:
-            words.add(cleaned)
-    return words
+    """Extract significant words from text, excluding stop words and short tokens.
+
+    Uses a regex that pulls identifier-shaped tokens out of dotted/quoted code
+    fragments, so "typing.Any" yields {"typing", "any"} and "`other:`" yields
+    {"other"} — both can then match a bot comment that mentions either piece.
+    """
+    return {
+        token.lower()
+        for token in _IDENT_RE.findall(text)
+        if len(token) >= 3 and token.lower() not in _STOP_WORDS
+    }
 
 
 # ── Botability pre-filter ─────────────────────────────────────────────────

@@ -22,6 +22,12 @@ from eval.report_generator import EvalConfig, PRResult, generate
 
 logger = logging.getLogger(__name__)
 
+# Bot comments anchored within this many lines of any changed line are kept.
+# Human reviewers often comment on diff context lines (unchanged signatures,
+# nearby blocks), so requiring an exact `+` line match throws away too many
+# bot comments before they can be matched.
+_DIFF_LINE_TOLERANCE = 2
+
 
 class DryRunPoster:
     """Drop-in replacement for GitHubPoster that collects comments without posting.
@@ -53,7 +59,7 @@ class DryRunPoster:
             original_count = len(review.comments)
             filtered = [
                 c for c in review.comments
-                if c.line in changed_lines_map.get(c.file_path, set())
+                if _line_near_changed(c.line, changed_lines_map.get(c.file_path, set()))
             ]
             dropped = original_count - len(filtered)
             if dropped:
@@ -65,6 +71,13 @@ class DryRunPoster:
             self.collected_comments.extend(filtered)
         else:
             self.collected_comments.extend(review.comments)
+
+
+def _line_near_changed(line: int, changed: set[int]) -> bool:
+    """Return True if `line` is within ±_DIFF_LINE_TOLERANCE of any changed line."""
+    if not changed:
+        return False
+    return any(abs(line - c) <= _DIFF_LINE_TOLERANCE for c in changed)
 
 
 async def _run_eval_for_pr(
