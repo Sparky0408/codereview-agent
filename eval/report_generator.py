@@ -39,6 +39,20 @@ def _format_pct(value: float) -> str:
     return f"{value * 100:.1f}%"
 
 
+_MAX_SNIPPET_CHARS = 600
+
+
+def _snippet(text: str) -> str:
+    """Render a comment for the report: collapsed whitespace, capped with an
+    explicit ellipsis when truncated so the reader never sees a sentence end
+    mid-word.
+    """
+    collapsed = " ".join(text.split())
+    if len(collapsed) <= _MAX_SNIPPET_CHARS:
+        return collapsed
+    return collapsed[:_MAX_SNIPPET_CHARS].rstrip() + "…"
+
+
 def generate(
     repo: str,
     pr_results: list[PRResult],
@@ -147,8 +161,8 @@ def generate(
             lines.append(f"**{mp.bot_comment.file_path}:{mp.bot_comment.line}** "
                          f"(Δ{mp.line_distance} lines, "
                          f"shared: {', '.join(mp.shared_words[:5])})")
-            lines.append(f"- 🤖 Bot: {mp.bot_comment.comment[:120]}")
-            lines.append(f"- 👤 Human: {mp.human_comment.body[:120]}")
+            lines.append(f"- 🤖 Bot: {_snippet(mp.bot_comment.comment)}")
+            lines.append(f"- 👤 Human: {_snippet(mp.human_comment.body)}")
             lines.append("")
     else:
         lines.append("_No true positives._\n")
@@ -158,7 +172,7 @@ def generate(
     if all_fps:
         for bc in all_fps[:3]:
             lines.append(f"**{bc.file_path}:{bc.line}** [{bc.severity.value}]")
-            lines.append(f"- 🤖 Bot: {bc.comment[:150]}")
+            lines.append(f"- 🤖 Bot: {_snippet(bc.comment)}")
             lines.append("")
     else:
         lines.append("_No false positives._\n")
@@ -168,7 +182,7 @@ def generate(
     if all_fns:
         for hc in all_fns[:3]:
             lines.append(f"**{hc.file_path}:{hc.line}**")
-            lines.append(f"- 👤 Human: {hc.body[:150]}")
+            lines.append(f"- 👤 Human: {_snippet(hc.body)}")
             lines.append("")
     else:
         lines.append("_No false negatives._\n")
@@ -182,7 +196,7 @@ def generate(
     lines.append("### Non-botable Comments (filtered from recall)\n")
     if all_non_botable:
         for reason, snippet in all_non_botable[:5]:
-            lines.append(f"- {reason} “{snippet}”")
+            lines.append(f"- {reason} “{_snippet(snippet)}”")
         lines.append("")
     else:
         lines.append("_No non-botable comments._\n")

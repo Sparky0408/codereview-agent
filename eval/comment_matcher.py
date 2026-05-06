@@ -308,7 +308,7 @@ def match(
         else:
             # Keep first 5 examples for the report (with reason tag)
             if len(non_botable_examples) < 5:
-                non_botable_examples.append((reason, hc.body[:150]))
+                non_botable_examples.append((reason, hc.body))
 
     non_botable_count = total_human - len(botable)
     logger.info(
