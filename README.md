@@ -2,124 +2,37 @@
 
 # CodeReview Agent
 
-[![CI](https://github.com/Sparky0408/codereview-agent/actions/workflows/ci.yml/badge.svg)](https://github.com/Sparky0408/codereview-agent/actions)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://python.org)
-[![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![Gemini](https://img.shields.io/badge/Gemini_2.5-Pro_%2B_Flash-4285F4?logo=google&logoColor=white)](https://ai.google.dev/)
-[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?logo=docker&logoColor=white)](Dockerfile)
+**Self-hostable GitHub App that reviews pull requests with AST context, static analysis, RAG retrieval, and schema-validated Gemini output.**
 
-**A self-hostable GitHub App that reviews pull requests with AST context, static analysis, RAG retrieval, and structured Gemini output.**
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue?style=for-the-badge)](LICENSE)
+[![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?style=for-the-badge&logo=python&logoColor=white)](https://python.org)
+[![FastAPI](https://img.shields.io/badge/FastAPI-async-009688?style=for-the-badge&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![Gemini 2.5](https://img.shields.io/badge/Gemini_2.5-Pro_%2B_Flash-4285F4?style=for-the-badge&logo=google&logoColor=white)](https://ai.google.dev/)
+[![Docker](https://img.shields.io/badge/Docker-Ready-2496ED?style=for-the-badge&logo=docker&logoColor=white)](Dockerfile)
 
-CodeReview Agent is built for teams that want useful AI review comments without sending their workflow through a black-box SaaS. It verifies GitHub webhooks, fetches PR diffs with installation tokens, analyzes changed code, retrieves related repo context, asks Gemini for schema-validated findings, and posts severity-tiered inline comments back to GitHub.
+[Quickstart](#quickstart) · [How it works](#how-it-works) · [Evaluation](#evaluation) · [Configuration](#configuration) · [Architecture](docs/architecture.md)
+
+<img src="docs/assets/demo.png" alt="CodeReview Agent posting severity-tiered inline review comments on a GitHub pull request" width="860" />
 
 </div>
 
 ---
 
-## Demo
+> **Status — in active development.**
+> The included evaluation harness scores around **P ≈ 14%, R ≈ 4%, F1 ≈ 5–6%** on `pallets/click` and `pallets/jinja` (15 PRs, `gemini-2.5-flash`). Useful as a pre-merge sanity layer today; not a replacement for human review. See [Evaluation](#evaluation) for the full numbers and known limits.
 
-<p align="center">
-  <img src="docs/assets/demo.png" alt="CodeReview Agent posting severity-tiered inline review comments on a GitHub pull request" width="860" />
-</p>
+## Why this exists
 
-## What It Does
+Most AI review bots treat code as plain text. CodeReview Agent gives the model the supporting context a serious reviewer would want — function-level AST metadata, static-analysis findings, and related-code chunks retrieved via local embeddings — and validates the LLM's response against a Pydantic schema before any comment is posted. It runs entirely on your infrastructure with your GitHub App credentials, no third-party SaaS in the loop.
 
-When a pull request is opened or updated, CodeReview Agent runs a complete review pipeline:
+## Quickstart
 
-1. Verifies the `X-Hub-Signature-256` webhook signature with HMAC-SHA256.
-2. Fetches the pull request diff through a GitHub App installation token.
-3. Parses changed Python, JavaScript, and TypeScript files with tree-sitter.
-4. Runs static analysis with ruff, bandit, semgrep, and ESLint.
-5. Retrieves related repository chunks from ChromaDB using local embeddings.
-6. Sends diff, AST metadata, linter findings, and RAG context to Gemini.
-7. Validates the LLM response with Pydantic before posting anything.
-8. Posts inline review comments as `CRITICAL`, `SUGGESTION`, or `NITPICK`.
-9. Tracks thumbs-up and thumbs-down reactions for a feedback loop.
-
-## Why It Is Different
-
-Most AI review bots treat code as plain text. This project gives the model the same supporting context a serious reviewer would want.
-
-| Capability | Why it matters |
-|------------|----------------|
-| AST-aware review | Function boundaries, line ranges, argument counts, and complexity signals are available before prompting. |
-| Static analysis fusion | Mechanical findings from linters become context, so the LLM can focus on semantic and design issues. |
-| RAG over the repository | Related code chunks are retrieved from ChromaDB instead of reviewing a diff in isolation. |
-| Structured output | Gemini responses are validated against Pydantic models before comments are posted. |
-| GitHub App auth | Reviews run with installation tokens, not personal access tokens. |
-| Self-hostable stack | FastAPI, Redis, PostgreSQL, ChromaDB, workers, and dashboard run on your infrastructure. |
-
-## Feature Matrix
-
-| Feature | CodeReview Agent | CodeRabbit | GitHub Copilot | PR-Agent |
-|---------|:----------------:|:----------:|:--------------:|:--------:|
-| Self-hostable | Yes | No | No | Yes |
-| GitHub App flow | Yes | Yes | Yes | Partial |
-| AST-aware diff parsing | Yes | No | No | Partial |
-| RAG context retrieval | Yes | No | No | No |
-| Static analysis before LLM | Yes | Partial | No | Partial |
-| Feedback learning loop | Yes | Yes | No | No |
-| Per-repo configuration | Yes | Yes | No | Yes |
-| Open source | Yes | No | No | Yes |
-
-## Architecture
-
-```mermaid
-flowchart LR
-    A["GitHub Webhook"] --> B["FastAPI Webhook Handler"]
-    B --> C["HMAC-SHA256 Verification"]
-    C --> D["Redis + ARQ Queue"]
-    D --> E["Review Worker"]
-    E --> F["GitHub Diff Fetcher"]
-    E --> G["tree-sitter AST Analyzer"]
-    E --> H["Static Analysis"]
-    E --> I["ChromaDB RAG Retriever"]
-    F & G & H & I --> J["Gemini Structured Review"]
-    J --> K["Pydantic Validation"]
-    K --> L["GitHub Inline Comments"]
-    L --> M["PostgreSQL Feedback Store"]
-    M --> N["Streamlit Dashboard"]
-```
-
-Read the deeper design notes in [docs/architecture.md](docs/architecture.md).
-
-## Tech Stack
-
-| Layer | Technology |
-|-------|------------|
-| Web | FastAPI, uvicorn |
-| Validation | Pydantic v2, pydantic-settings |
-| GitHub | PyGitHub, GitHub App JWT, installation tokens |
-| LLM | Gemini 2.5 Pro for review, Gemini 2.5 Flash for triage |
-| AST | tree-sitter with Python, JavaScript, and TypeScript parsers |
-| Static analysis | ruff, bandit, semgrep, ESLint |
-| RAG | ChromaDB, `sentence-transformers/all-MiniLM-L6-v2` |
-| Queue | Redis, ARQ |
-| Database | PostgreSQL 16, SQLAlchemy 2.0 async, asyncpg |
-| Dashboard | Streamlit, Plotly |
-| Packaging | uv, hatchling |
-| Containers | Docker, Docker Compose |
-
-## Quick Start
-
-### Prerequisites
-
-- Python 3.12
-- [uv](https://docs.astral.sh/uv/)
-- Docker and Docker Compose
-- A GitHub App with webhook delivery enabled
-- A Gemini API key
-
-### 1. Clone and install
+**Prerequisites**: Python 3.12 with [uv](https://docs.astral.sh/uv/), Docker + Docker Compose, a GitHub App (webhook delivery enabled), a Gemini API key.
 
 ```bash
 git clone https://github.com/Sparky0408/codereview-agent.git
 cd codereview-agent
-uv sync
 ```
-
-### 2. Configure environment
 
 Create a `.env` file in the project root:
 
@@ -132,38 +45,29 @@ DATABASE_URL=postgresql+asyncpg://codereview:codereview@postgres:5432/codereview
 REDIS_URL=redis://redis:6379/0
 ```
 
-Place your GitHub App private key at `secrets/codereview-agent.pem`. The `secrets/` directory is ignored by git.
-
-### 3. Run the stack
+Drop your GitHub App private key at `secrets/codereview-agent.pem` (the directory is git-ignored), then:
 
 ```bash
 docker compose up -d
 ```
 
-The API runs on [http://localhost:8000](http://localhost:8000), and the dashboard runs on [http://localhost:8501](http://localhost:8501).
+| Service | URL |
+|---|---|
+| API | <http://localhost:8000> |
+| Dashboard | <http://localhost:8501> |
 
-### 4. Connect GitHub
+Install the App on a test repo, point its webhook URL at `/webhook` on your public tunnel, open a PR, and watch the comments land.
 
-1. Install the GitHub App on a test repository.
-2. Point the webhook URL to `/webhook` on your public tunnel or deployment URL.
-3. Open or update a pull request.
-4. Watch CodeReview Agent post inline review comments.
-
-## Local Development
-
-Run the supporting services:
+<details>
+<summary><b>Local development without Docker</b></summary>
 
 ```bash
+uv sync
 docker compose up postgres redis -d
-```
-
-Run the API locally:
-
-```bash
 uv run uvicorn app.main:app --reload
 ```
 
-Run checks before opening a PR:
+Pre-PR checks:
 
 ```bash
 uv run pytest -v
@@ -171,9 +75,70 @@ uv run ruff check app/ tests/ dashboard/
 uv run mypy app/
 ```
 
-## Per-Repo Configuration
+</details>
 
-Add `.codereview.yml` to a repository to tune review behavior:
+## How it works
+
+```mermaid
+flowchart LR
+    A["GitHub Webhook"] --> B["FastAPI handler<br/>HMAC-SHA256 verify"]
+    B --> C["Redis + ARQ Queue"]
+    C --> D["Review Worker"]
+    D --> E["Diff fetch"]
+    D --> F["tree-sitter AST"]
+    D --> G["Static analysis<br/>ruff · bandit · semgrep · ESLint"]
+    D --> H["ChromaDB RAG"]
+    E & F & G & H --> I["Gemini 2.5"]
+    I --> J["Pydantic validation"]
+    J --> K["Inline comments<br/>CRITICAL · SUGGESTION · NITPICK"]
+    K --> L["PostgreSQL feedback store"]
+    L --> M["Streamlit dashboard"]
+```
+
+The pipeline, in order:
+
+1. Verify the `X-Hub-Signature-256` webhook with HMAC-SHA256.
+2. Fetch the PR diff via a GitHub App installation token.
+3. Parse changed Python / JavaScript / TypeScript files with tree-sitter.
+4. Run ruff, bandit, semgrep, and ESLint over the changed files.
+5. Retrieve related repo chunks from ChromaDB (`sentence-transformers/all-MiniLM-L6-v2`).
+6. Send diff + AST summaries + linter findings + RAG context to Gemini 2.5.
+7. Parse the response against a Pydantic schema; retry once on malformed JSON, fail closed otherwise.
+8. Apply per-repo severity threshold and per-file / total comment caps from `.codereview.yml`.
+9. Post inline comments as `CRITICAL`, `SUGGESTION`, or `NITPICK`, then store reactions for the feedback loop.
+
+Deeper notes in [docs/architecture.md](docs/architecture.md).
+
+## Evaluation
+
+A historical-PR replay harness lives in [`eval/`](eval/). It re-runs the pipeline against merged pull requests, then fuzz-matches the bot's comments against the original human review comments. Reports go to [`eval_reports/`](eval_reports/).
+
+Latest runs (15 PRs each, `gemini-2.5-flash`):
+
+| Repo | TP | FP | FN | Precision | Recall | F1 |
+|---|---:|---:|---:|---:|---:|---:|
+| `pallets/click` <sub>(mean of 4 runs)</sub> | 2.0 ± 1.0 | 12.0 ± 1.4 | 66.0 ± 1.0 | **14.0% ± 6.1** | **3.0% ± 1.5** | **4.8% ± 2.4** |
+| `pallets/jinja` <sub>(1 run)</sub> | 3 | 18 | 70 | **14.3%** | **4.1%** | **6.4%** |
+
+Run it yourself:
+
+```bash
+uv run python -m eval.run \
+  --repo pallets/click \
+  --prs 15 \
+  --gemini-model gemini-2.5-flash \
+  --output eval_reports/click_15.md
+```
+
+**Caveats** to read with the numbers:
+
+- Matching is intentionally strict — same file, ±5 lines, ≥2 shared significant words after stop-word filtering and identifier-aware tokenization (so `typing.Any` splits into `{typing, any}`).
+- The bot can be technically correct and still score 0 if the historical reviewer happened not to flag that exact line.
+- Repeated runs with `temperature=0` show meaningful variance (F1 ranged 2.4–7.2% on the same 15 click PRs across 4 runs). Treat single-run numbers as point estimates, not benchmarks.
+
+## Configuration
+
+Drop a `.codereview.yml` into a repository to tune review behavior:
 
 ```yaml
 enabled: true
@@ -193,45 +158,78 @@ review_rules:
     - "HACK"
 ```
 
-See [docs/configuration.md](docs/configuration.md) for the full reference.
+Full reference in [docs/configuration.md](docs/configuration.md).
 
-## Evaluation
+## Compared to other AI reviewers
 
-The evaluation harness replays historical merged pull requests and compares generated comments against human review comments.
+| Capability | CodeReview Agent | CodeRabbit | GitHub Copilot | PR-Agent |
+|---|:---:|:---:|:---:|:---:|
+| Self-hostable | ✓ | – | – | ✓ |
+| GitHub App auth | ✓ | ✓ | ✓ | partial |
+| AST-aware diff parsing | ✓ | – | – | partial |
+| RAG over the repository | ✓ | – | – | – |
+| Static analysis fed to LLM | ✓ | partial | – | partial |
+| Schema-validated LLM output | ✓ | – | – | – |
+| Per-repo configuration | ✓ | ✓ | – | ✓ |
+| Reaction-based feedback loop | ✓ | ✓ | – | – |
+| Open source | ✓ | – | – | ✓ |
 
-```bash
-uv run python -m eval.run --repo encode/starlette --prs 5 --gemini-model gemini-2.5-flash
-```
+## Tech stack
 
-Current reports live in [`eval_reports/`](eval_reports/) when generated locally. The matching criteria are intentionally strict, so early numbers should be read as a tuning signal rather than a product-quality score.
+<details>
+<summary>Full stack</summary>
 
-## Project Layout
+| Layer | Technology |
+|---|---|
+| Web | FastAPI, uvicorn |
+| Validation | Pydantic v2, pydantic-settings |
+| GitHub | PyGitHub, GitHub App JWT, installation tokens |
+| LLM | Gemini 2.5 Pro (production review), Gemini 2.5 Flash (triage + eval) |
+| AST | tree-sitter (Python, JavaScript, TypeScript) |
+| Static analysis | ruff, bandit, semgrep, ESLint |
+| RAG | ChromaDB + `sentence-transformers/all-MiniLM-L6-v2` |
+| Queue | Redis, ARQ |
+| Database | PostgreSQL 16, SQLAlchemy 2.0 async, asyncpg |
+| Dashboard | Streamlit, Plotly |
+| Packaging | uv, hatchling |
+| Containers | Docker, Docker Compose |
+
+</details>
+
+## Project layout
+
+<details>
+<summary>Repository structure</summary>
 
 ```text
 app/
-  webhook.py              # GitHub webhook handling and signature verification
-  github_auth.py          # GitHub App JWT and installation token flow
-  github_client.py        # Async wrapper around GitHub operations
-  services/               # Review pipeline, AST, RAG, static analysis, posting
-  workers/                # ARQ jobs
-  db/                     # SQLAlchemy models and session setup
-dashboard/                # Streamlit dashboard
-docs/                     # Architecture and configuration docs
-eval/                     # Historical PR evaluation harness
-tests/                    # pytest suite mirroring app structure
+  webhook.py               # GitHub webhook handling + signature verification
+  github_auth.py           # GitHub App JWT + installation token flow
+  github_client.py         # Async GitHub wrapper
+  services/                # Review pipeline, AST, RAG, static analysis, posting
+  workers/                 # ARQ jobs
+  db/                      # SQLAlchemy models and session setup
+  models/                  # Pydantic schemas
+dashboard/                 # Streamlit dashboard (overview, feedback, eval pages)
+docs/                      # Architecture and configuration docs
+eval/                      # Historical PR evaluation harness
+tests/                     # pytest suite mirroring app/
 ```
+
+</details>
 
 ## Roadmap
 
-- Improve evaluation matching beyond exact-line comparison.
-- Add richer dashboard slices for severity, repo, and time-window analysis.
-- Tune prompt behavior using feedback reactions.
-- Expand JavaScript and TypeScript static-analysis coverage.
-- Harden deployment docs for production self-hosting.
+- [ ] Lift evaluation precision and recall closer to human-grade signal
+- [ ] Multi-run evaluation averaging to dampen LLM variance
+- [ ] Richer dashboard slices for severity, repo, and time window
+- [ ] Tune prompts against the feedback-reaction signal
+- [ ] Expand JavaScript and TypeScript static-analysis coverage
+- [ ] Production deployment recipe (TLS, key rotation, observability)
 
 ## Contributing
 
-Contributions are welcome. Start with [CONTRIBUTING.md](CONTRIBUTING.md) for setup, test commands, branch naming, and PR expectations.
+Contributions welcome — start with [CONTRIBUTING.md](CONTRIBUTING.md) for setup, test commands, branch naming, and PR expectations.
 
 ## Security
 
