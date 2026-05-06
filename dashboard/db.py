@@ -11,7 +11,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy import func, select, text
-from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
+from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+from sqlalchemy.pool import NullPool
 
 from app.db.models import BotComment, Feedback
 
@@ -20,13 +21,8 @@ _DATABASE_URL = os.environ.get(
     "postgresql+asyncpg://codereview:codereview@localhost:5432/codereview",
 )
 
-_engine = create_async_engine(_DATABASE_URL, echo=False)
+_engine = create_async_engine(_DATABASE_URL, echo=False, poolclass=NullPool)
 _async_session = async_sessionmaker(bind=_engine, expire_on_commit=False)
-
-
-async def _get_session() -> AsyncSession:
-    """Create a new async session."""
-    return _async_session()
 
 
 async def get_overview_metrics() -> dict[str, Any]:

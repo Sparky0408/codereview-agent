@@ -11,6 +11,8 @@ import os
 import sys
 import time
 
+from dotenv import load_dotenv
+
 from app.models.review import ReviewComment, ReviewOutput
 from app.services.ast_analyzer import ASTAnalyzer
 from app.services.reviewer import Reviewer
@@ -162,6 +164,9 @@ async def main(argv: list[str] | None = None) -> None:
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",
     )
+
+    # Auto-load .env so the user doesn't need to source it manually
+    load_dotenv()
 
     # Read tokens from environment
     pat_token = os.environ.get("GITHUB_EVAL_PAT", "")

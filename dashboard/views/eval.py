@@ -8,6 +8,8 @@ from pathlib import Path
 import plotly.graph_objects as go
 import streamlit as st
 
+from dashboard.ui import apply_chart_layout, empty_state, render_page_header, section_title
+
 # ---------------------------------------------------------------------------
 # Constants
 # ---------------------------------------------------------------------------
@@ -38,12 +40,15 @@ def _extract_metrics(content: str) -> dict[str, float]:
 
 def render() -> None:
     """Render the Eval page."""
-    st.header("🧪 Evaluation Results")
-    st.caption("Browse evaluation reports and track Precision / Recall / F1 over time.")
+    render_page_header(
+        "Evaluation Reports",
+        "Eval",
+        "Browse offline benchmark reports and compare precision, recall, and F1 over time.",
+    )
 
     reports = _find_reports()
     if not reports:
-        st.warning("No evaluation reports found in `eval_reports/`.")
+        empty_state("No evaluation reports found in `eval_reports/`.")
         return
 
     # -- file selector --------------------------------------------------------
@@ -65,17 +70,13 @@ def render() -> None:
         for col, (label, value) in zip(cols, metrics.items(), strict=False):
             col.metric(label, f"{value:.1f}%")
 
-    st.divider()
-
     # -- render full markdown -------------------------------------------------
-    st.subheader(f"📄 {selected}")
+    section_title(selected)
     st.markdown(content, unsafe_allow_html=False)
-
-    st.divider()
 
     # -- historical comparison ------------------------------------------------
     if len(reports) >= 2:
-        st.subheader("📈 Historical Precision / Recall Comparison")
+        section_title("Historical comparison")
 
         history: list[dict[str, float | str]] = []
         for rp in reversed(reports):  # oldest first
@@ -97,7 +98,7 @@ def render() -> None:
                     y=precision_vals,
                     mode="lines+markers",
                     name="Precision",
-                    line=dict(color="#60A5FA"),
+                    line=dict(color="#60A5FA", width=3),
                 )
             )
             fig.add_trace(
@@ -106,7 +107,7 @@ def render() -> None:
                     y=recall_vals,
                     mode="lines+markers",
                     name="Recall",
-                    line=dict(color="#34D399"),
+                    line=dict(color="#34D399", width=3),
                 )
             )
             fig.add_trace(
@@ -115,26 +116,17 @@ def render() -> None:
                     y=f1_vals,
                     mode="lines+markers",
                     name="F1",
-                    line=dict(color="#FBBF24"),
+                    line=dict(color="#FBBF24", width=3),
                 )
             )
-            fig.update_layout(
-                template="plotly_dark",
-                paper_bgcolor="rgba(0,0,0,0)",
-                plot_bgcolor="rgba(0,0,0,0)",
-                margin=dict(l=20, r=20, t=30, b=20),
-                yaxis_range=[0, 100],
-                yaxis_title="Score %",
-                xaxis_title="Report",
-                legend=dict(orientation="h", yanchor="bottom", y=1.02, x=0.5, xanchor="center"),
-            )
+            apply_chart_layout(fig, yaxis_title="Score %")
+            fig.update_layout(yaxis_range=[0, 100])
             st.plotly_chart(fig, use_container_width=True)
         else:
-            st.info("Need at least 2 reports with metrics for a comparison chart.")
+            empty_state("Need at least 2 reports with metrics for a comparison chart.")
 
     # -- file uploader --------------------------------------------------------
-    st.divider()
-    st.subheader("📤 Upload a New Report")
+    section_title("Upload a new report")
     uploaded = st.file_uploader(
         "Upload an eval_report_*.md file",
         type=["md"],
@@ -145,3 +137,11 @@ def render() -> None:
         dest.write_bytes(uploaded.getvalue())
         st.success(f"Saved **{uploaded.name}** to `eval_reports/`. Refresh to see it.")
         st.rerun()
+
+
+if __name__ == "__main__":
+    st.set_page_config(page_title="Eval | CodeReview Agent", page_icon="CR", layout="wide")
+    from dashboard.ui import apply_theme
+
+    apply_theme()
+    render()

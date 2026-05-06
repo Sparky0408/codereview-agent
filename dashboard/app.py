@@ -1,4 +1,4 @@
-"""CodeReview Agent Dashboard — Streamlit entrypoint.
+"""CodeReview Agent Dashboard entrypoint.
 
 Run with:
     streamlit run dashboard/app.py
@@ -6,114 +6,65 @@ Run with:
 
 from __future__ import annotations
 
+import sys
+from pathlib import Path
+
 import streamlit as st
+
+ROOT_PATH = str(Path(__file__).resolve().parents[1])
+if ROOT_PATH not in sys.path:
+    sys.path.insert(0, ROOT_PATH)
+
+from dashboard.ui import apply_theme, render_sidebar_brand  # noqa: E402
 
 # ---------------------------------------------------------------------------
 # Page configuration (must be first Streamlit call)
 # ---------------------------------------------------------------------------
 st.set_page_config(
     page_title="CodeReview Agent Dashboard",
-    page_icon="🤖",
+    page_icon="CR",
     layout="wide",
     initial_sidebar_state="expanded",
 )
 
-# ---------------------------------------------------------------------------
-# Custom CSS for a premium dark-themed dashboard
-# ---------------------------------------------------------------------------
-st.markdown(
-    """
-    <style>
-    /* ── Global ───────────────────────────────────────────────── */
-    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
-
-    html, body, [class*="css"] {
-        font-family: 'Inter', sans-serif;
-    }
-
-    /* ── Sidebar ──────────────────────────────────────────────── */
-    section[data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #1E1B4B 0%, #0F172A 100%);
-    }
-    section[data-testid="stSidebar"] .stRadio label {
-        color: #CBD5E1;
-        font-weight: 500;
-    }
-
-    /* ── Metric cards ─────────────────────────────────────────── */
-    div[data-testid="stMetric"] {
-        background: linear-gradient(135deg, #1E293B 0%, #0F172A 100%);
-        border: 1px solid rgba(99, 102, 241, 0.25);
-        border-radius: 12px;
-        padding: 16px 20px;
-        box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
-    }
-    div[data-testid="stMetric"] label {
-        color: #94A3B8 !important;
-        font-size: 0.85rem;
-        text-transform: uppercase;
-        letter-spacing: 0.05em;
-    }
-    div[data-testid="stMetric"] [data-testid="stMetricValue"] {
-        color: #E2E8F0 !important;
-        font-weight: 700;
-        font-size: 1.8rem;
-    }
-
-    /* ── Dividers ─────────────────────────────────────────────── */
-    hr {
-        border-color: rgba(99, 102, 241, 0.2) !important;
-    }
-
-    /* ── Dataframes ───────────────────────────────────────────── */
-    .stDataFrame {
-        border-radius: 8px;
-        overflow: hidden;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
+apply_theme()
 
 # ---------------------------------------------------------------------------
 # Sidebar navigation
 # ---------------------------------------------------------------------------
-st.sidebar.markdown(
-    """
-    <div style="text-align:center; padding: 16px 0 8px 0;">
-        <span style="font-size:2rem;">🤖</span>
-        <h2 style="margin:4px 0 0 0; color:#E2E8F0; font-weight:700;">
-            CodeReview Agent
-        </h2>
-        <p style="color:#64748B; font-size:0.8rem; margin:0;">Dashboard v1.0</p>
-    </div>
-    """,
-    unsafe_allow_html=True,
-)
+render_sidebar_brand()
 
 page = st.sidebar.radio(
     "Navigate",
     options=["Overview", "Feedback", "Eval"],
     index=0,
+    key="dashboard_navigation",
     label_visibility="collapsed",
 )
 
-st.sidebar.divider()
-st.sidebar.caption("Auto-refreshes every 60 s")
+st.sidebar.markdown(
+    """
+    <div class="sidebar-footer">
+        <span class="status-dot"></span>
+        <span>Auto-refreshes every 60 seconds</span>
+    </div>
+    """,
+    unsafe_allow_html=True,
+)
 
 # ---------------------------------------------------------------------------
 # Route to the selected page
 # ---------------------------------------------------------------------------
 if page == "Overview":
-    from dashboard.pages.overview import render
+    from dashboard.views.overview import render
 
     render()
 elif page == "Feedback":
-    from dashboard.pages.feedback import render  # type: ignore[no-redef]
+    from dashboard.views.feedback import render  # type: ignore[no-redef]
 
     render()
 elif page == "Eval":
-    from dashboard.pages.eval import render  # type: ignore[no-redef]
+    from dashboard.views.eval import render  # type: ignore[no-redef]
 
     render()
 
