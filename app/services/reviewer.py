@@ -81,15 +81,11 @@ class Reviewer:
             static_findings_block=static_text,
         )
 
-        if review_rules:
-            user_prompt += (
-                f"\n\nThe team has configured these rules: "
-                f"max function lines = {review_rules.max_function_lines}, "
-                f"max complexity = {review_rules.max_cyclomatic_complexity}, "
-                f"max function args = {review_rules.max_function_args}, "
-                f"banned patterns = {review_rules.banned_patterns}. "
-                f"Flag violations of these rules as CRITICAL."
-            )
+        # Mechanical rule limits (max args, max lines, banned patterns) are
+        # enforced by static analysis — injecting them into the prompt biases
+        # the LLM toward producing low-value mechanical comments instead of
+        # semantic feedback. The post-LLM filter below still applies severity
+        # threshold and per-file/total caps from review_rules.
 
         config = types.GenerateContentConfig(
             system_instruction=self._system_prompt,

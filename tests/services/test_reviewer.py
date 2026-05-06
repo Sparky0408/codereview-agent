@@ -19,7 +19,7 @@ def fake_reviewer() -> Reviewer:
 
 def test_prompts_load_on_init(fake_reviewer: Reviewer) -> None:
     """Verify that system and user prompts load correctly."""
-    assert "You are a Senior Software Engineer reviewing code" in fake_reviewer._system_prompt
+    assert "You are a Senior Software Engineer reviewing a pull request" in fake_reviewer._system_prompt
     assert "{ast_summaries}" in fake_reviewer._user_template
     assert "{diffs}" in fake_reviewer._user_template
 
