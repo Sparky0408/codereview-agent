@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 
 from app.models.review import ReviewComment, ReviewOutput
 from app.services.ast_analyzer import ASTAnalyzer
+from app.services.diff_parser import parse_visible_lines
 from app.services.reviewer import Reviewer
 from eval.comment_matcher import MatchResult, match
 from eval.historical_pr_fetcher import HistoricalPR, fetch_merged_prs
@@ -22,21 +23,24 @@ from eval.report_generator import EvalConfig, PRResult, generate
 
 logger = logging.getLogger(__name__)
 
-# Bot comments anchored within this many lines of any changed line are kept.
-# Human reviewers often comment on diff context lines (unchanged signatures,
-# nearby blocks), so requiring an exact `+` line match throws away too many
-# bot comments before they can be matched.
-_DIFF_LINE_TOLERANCE = 2
-
 
 class DryRunPoster:
     """Drop-in replacement for GitHubPoster that collects comments without posting.
 
-    This ensures evaluation never writes to GitHub.
+    This ensures evaluation never writes to GitHub. When constructed with a
+    ``visible_lines_map`` (added + context lines from the patch), bot comments
+    are gated to lines that were actually shown in the diff — including context
+    — instead of just `+` lines. Production posting still uses the stricter
+    changed-lines-only filter; this is eval-only because GitHub itself shows
+    the same context window to human reviewers.
     """
 
-    def __init__(self) -> None:
+    def __init__(
+        self,
+        visible_lines_map: dict[str, set[int]] | None = None,
+    ) -> None:
         self.collected_comments: list[ReviewComment] = []
+        self._visible_lines_map = visible_lines_map
 
     async def post_review(
         self,
@@ -46,20 +50,22 @@ class DryRunPoster:
         review: ReviewOutput,
         changed_lines_map: dict[str, set[int]] | None = None,
     ) -> None:
-        """Collect comments after filtering them to changed lines (diff-aware).
+        """Collect comments after filtering them to lines visible in the diff.
 
         Args:
             repo_full_name: Repository owner/name (unused in dry run).
             pr_number: PR number (unused in dry run).
             installation_token: Token (unused in dry run).
             review: The review output to collect.
-            changed_lines_map: Optional mapping of filename to changed lines.
+            changed_lines_map: Mapping of filename to `+` lines, used as a
+                fallback when no visible_lines_map was supplied.
         """
-        if changed_lines_map is not None:
+        gate_map = self._visible_lines_map or changed_lines_map
+        if gate_map is not None:
             original_count = len(review.comments)
             filtered = [
                 c for c in review.comments
-                if _line_near_changed(c.line, changed_lines_map.get(c.file_path, set()))
+                if c.line in gate_map.get(c.file_path, set())
             ]
             dropped = original_count - len(filtered)
             if dropped:
@@ -71,13 +77,6 @@ class DryRunPoster:
             self.collected_comments.extend(filtered)
         else:
             self.collected_comments.extend(review.comments)
-
-
-def _line_near_changed(line: int, changed: set[int]) -> bool:
-    """Return True if `line` is within ±_DIFF_LINE_TOLERANCE of any changed line."""
-    if not changed:
-        return False
-    return any(abs(line - c) <= _DIFF_LINE_TOLERANCE for c in changed)
 
 
 async def _run_eval_for_pr(
@@ -101,7 +100,11 @@ async def _run_eval_for_pr(
     """
     from app.services.review_pipeline import ReviewPipeline
 
-    poster = DryRunPoster()
+    visible_lines_map = {
+        filename: parse_visible_lines(patch)
+        for filename, patch in pr.changed_files
+    }
+    poster = DryRunPoster(visible_lines_map=visible_lines_map)
     analyzer = ASTAnalyzer()
     reviewer = Reviewer(api_key=gemini_api_key, model=gemini_model)
 

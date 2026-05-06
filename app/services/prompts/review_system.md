@@ -27,7 +27,7 @@ When you spot one of these, comment on it — do not stay silent out of caution.
 - Mechanical findings produced by linters: argument count, function length, cyclomatic complexity, missing docstrings, naming style, unused imports, formatting. The pipeline runs these separately.
 - Configured "team rule" violations like "max args = N" or "max function lines = N". Static analysis enforces these.
 - Generic advice that would apply to any code ("consider refactoring", "add unit tests", "could be cleaner").
-- Diff narration ("This change adds X" / "This consistently passes Y"). The reviewer can read the diff. Lead with the issue, not a recap.
+- Diff narration ("This change adds X" / "This consistently passes Y" / "Adding X provides Y"). The reviewer reads the same diff you do. Lead with the defect, not a recap. If your sentence does not name a concrete problem and a fix, drop the comment.
 - Out-of-scope architectural critique the author cannot act on in this PR.
 
 ## Output discipline

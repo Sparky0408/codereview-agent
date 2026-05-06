@@ -48,3 +48,44 @@ def parse_changed_lines(patch: str) -> set[int]:
                 current_line += 1
 
     return changed_lines
+
+
+def parse_visible_lines(patch: str) -> set[int]:
+    """Parse a unified diff patch and return all line numbers visible in it.
+
+    Includes both added/modified lines and context lines, so callers can
+    anchor comments anywhere the diff actually displays — not just on `+`
+    lines. Useful for evaluation against historical PR comments, where
+    humans frequently comment on context lines (e.g. an unchanged function
+    signature next to a body change).
+
+    Args:
+        patch: Unified diff patch string.
+
+    Returns:
+        Set of 1-indexed line numbers in the new file that appear anywhere
+        in the diff (added, modified, or shown as context).
+    """
+    visible: set[int] = set()
+    current_line = 0
+
+    for raw_line in patch.splitlines():
+        hunk_match = _HUNK_HEADER_RE.match(raw_line)
+        if hunk_match:
+            current_line = int(hunk_match.group(1))
+            continue
+
+        if current_line == 0:
+            continue
+
+        if raw_line.startswith("+"):
+            visible.add(current_line)
+            current_line += 1
+        elif raw_line.startswith("-"):
+            pass
+        else:
+            if not raw_line.startswith("\\"):
+                visible.add(current_line)
+                current_line += 1
+
+    return visible
